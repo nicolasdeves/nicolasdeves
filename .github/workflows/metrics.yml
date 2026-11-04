@@ -10,10 +10,11 @@ on:
 jobs:
   languages:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
-      - uses: lowlighter/metrics@latest
+      - uses: lowlighter/metrics@v3.34
         with:
           filename: metrics.languages.svg
           token: ${{ secrets.METRICS_TOKEN }}
