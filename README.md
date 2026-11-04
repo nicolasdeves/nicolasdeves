@@ -59,7 +59,7 @@
 ### 📊 GitHub stats
 
 <p align="center">
-  <img src="https://streak-stats.demolab.com?user=nicolasdeves&theme=tokyonight&hide_border=true" alt="Contributions and streak"/>
+  <img src="./metrics.stats.svg" alt="Contributions (public + private)"/>
 </p>
 
 <p align="center">
@@ -67,5 +67,5 @@
 </p>
 
 <p align="center">
-  <img src="https://github-readme-activity-graph.vercel.app/graph?username=nicolasdeves&theme=tokyo-night&hide_border=true&area=true" alt="Contribution graph" width="100%"/>
+  <img src="./metrics.activity.svg" alt="Contribution graph" width="100%"/>
 </p>
