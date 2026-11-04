@@ -6,24 +6,86 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    paths: [".github/workflows/metrics.yml"]
 
 jobs:
   languages:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:
-      - uses: lowlighter/metrics@v3.34
+      - uses: actions/checkout@v4
+
+      - name: Build languages card (public + private repos)
+        uses: actions/github-script@v7
         with:
-          filename: metrics.languages.svg
-          token: ${{ secrets.METRICS_TOKEN }}
-          base: ""
-          config_timezone: America/Sao_Paulo
-          repositories_affiliations: owner, collaborator
-          plugin_languages: yes
-          plugin_languages_sections: most-used
-          plugin_languages_details: percentage
-          plugin_languages_limit: 8
-          plugin_languages_threshold: 1%
-          plugin_languages_ignored: html, css, blade, hack, dockerfile
+          github-token: ${{ secrets.METRICS_TOKEN }}
+          script: |
+            const IGNORED = new Set(['html', 'css', 'scss', 'blade', 'hack', 'dockerfile', 'makefile', 'procfile']);
+            const LIMIT = 8;
+            const totals = {};
+            const colors = {};
+            let after = null, repos = 0;
+            do {
+              let res;
+              try {
+                res = await github.graphql(`query($after: String) {
+                  viewer { repositories(first: 50, after: $after, isFork: false,
+                    ownerAffiliations: [OWNER, COLLABORATOR, ORGANIZATION_MEMBER]) {
+                    pageInfo { hasNextPage endCursor }
+                    nodes { languages(first: 25) { edges { size node { name color } } } }
+                  } } }`, { after });
+              } catch (e) {
+                core.warning(`Partial result: ${e.message}`);
+                res = e.data;
+                if (!res) throw e;
+              }
+              const page = res.viewer.repositories;
+              for (const repo of page.nodes.filter(Boolean)) {
+                repos++;
+                for (const { size, node } of repo.languages.edges) {
+                  if (IGNORED.has(node.name.toLowerCase())) continue;
+                  totals[node.name] = (totals[node.name] || 0) + size;
+                  colors[node.name] = node.color || '#8b949e';
+                }
+              }
+              after = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null;
+            } while (after);
+
+            const sum = Object.values(totals).reduce((a, b) => a + b, 0) || 1;
+            const top = Object.entries(totals).sort((a, b) => b[1] - a[1]).slice(0, LIMIT)
+              .map(([name, size]) => ({ name, pct: (size / sum) * 100, color: colors[name] }));
+            core.info(`Repositories analysed: ${repos}`);
+            core.info(top.map(l => `${l.name}: ${l.pct.toFixed(1)}%`).join('\n'));
+
+            const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+            const W = 460, barY = 48, rowH = 26, cols = 2;
+            const rows = Math.ceil(top.length / cols);
+            const H = barY + 28 + rows * rowH + 8;
+            let x = 20, bar = '';
+            const barW = W - 40;
+            for (const l of top) {
+              const w = Math.max(barW * l.pct / 100, 2);
+              bar += `<rect x="${x.toFixed(1)}" y="${barY}" width="${w.toFixed(1)}" height="10" fill="${l.color}"/>`;
+              x += w;
+            }
+            const items = top.map((l, i) => {
+              const cx = 20 + (i % cols) * (barW / cols), cy = barY + 38 + Math.floor(i / cols) * rowH;
+              return `<circle cx="${cx + 6}" cy="${cy - 4}" r="6" fill="${l.color}"/>` +
+                `<text x="${cx + 20}" y="${cy}" class="t">${esc(l.name)} <tspan class="p">${l.pct.toFixed(1)}%</tspan></text>`;
+            }).join('');
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+            <style>.h{font:600 16px 'Segoe UI',Ubuntu,sans-serif;fill:#7aa2f7}.t{font:500 13px 'Segoe UI',Ubuntu,sans-serif;fill:#a9b1d6}.p{fill:#787c99}</style>
+            <rect width="${W}" height="${H}" rx="8" fill="#1a1b27"/>
+            <text x="20" y="30" class="h">Most Used Languages</text>
+            <clipPath id="c"><rect x="20" y="${barY}" width="${barW}" height="10" rx="5"/></clipPath>
+            <g clip-path="url(#c)">${bar}</g>${items}</svg>`;
+            require('fs').writeFileSync('metrics.languages.svg', svg);
+
+      - name: Commit card
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add metrics.languages.svg
+          git diff --cached --quiet || (git commit -m "chore: update languages card" && git push)
