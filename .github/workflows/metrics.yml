@@ -83,9 +83,77 @@ jobs:
             <g clip-path="url(#c)">${bar}</g>${items}</svg>`;
             require('fs').writeFileSync('metrics.languages.svg', svg);
 
-      - name: Commit card
+      - name: Build contributions cards (public + private)
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.METRICS_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const { viewer } = await github.graphql(`{ viewer { createdAt } }`);
+            const now = new Date();
+            const yearAgo = new Date(now); yearAgo.setFullYear(now.getFullYear() - 1);
+            const q = `query($from: DateTime!, $to: DateTime!) { viewer { contributionsCollection(from: $from, to: $to) {
+              totalCommitContributions restrictedContributionsCount
+              contributionCalendar { totalContributions weeks { contributionDays { date contributionCount } } } } } }`;
+
+            // All-time total (GitHub limits each query to one year)
+            let allTime = 0;
+            for (let start = new Date(viewer.createdAt); start < now; ) {
+              const end = new Date(start); end.setFullYear(start.getFullYear() + 1);
+              const r = await github.graphql(q, { from: start.toISOString(), to: (end < now ? end : now).toISOString() });
+              allTime += r.viewer.contributionsCollection.contributionCalendar.totalContributions;
+              start = end;
+            }
+            const last = (await github.graphql(q, { from: yearAgo.toISOString(), to: now.toISOString() })).viewer.contributionsCollection;
+            const yearTotal = last.contributionCalendar.totalContributions;
+            const commits = last.totalCommitContributions;
+            const weeks = last.contributionCalendar.weeks.map(w => w.contributionDays.reduce((s, d) => s + d.contributionCount, 0));
+            core.info(`All time: ${allTime} | last year: ${yearTotal} | commits: ${commits}`);
+
+            const fmt = n => n.toLocaleString('en-US');
+            const font = `'Segoe UI',Ubuntu,sans-serif`;
+            const style = `<style>.n{font:700 28px ${font};fill:#7aa2f7}.l{font:500 13px ${font};fill:#a9b1d6}.h{font:600 16px ${font};fill:#7aa2f7}.a{font:400 11px ${font};fill:#787c99}</style>`;
+
+            // Stats card
+            const W = 495, H = 140;
+            const stats = [[allTime, 'Total contributions', 'all time'], [yearTotal, 'Contributions', 'last 12 months'], [commits, 'Commits', 'last 12 months']];
+            const col = W / 3;
+            const cells = stats.map(([n, l, s], i) => {
+              const cx = col * i + col / 2;
+              return `<text x="${cx}" y="62" text-anchor="middle" class="n">${fmt(n)}</text>` +
+                `<text x="${cx}" y="90" text-anchor="middle" class="l">${l}</text>` +
+                `<text x="${cx}" y="108" text-anchor="middle" class="a">${s}</text>` +
+                (i ? `<line x1="${col * i}" y1="35" x2="${col * i}" y2="110" stroke="#2f334d"/>` : '');
+            }).join('');
+            fs.writeFileSync('metrics.stats.svg', `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${style}<rect width="${W}" height="${H}" rx="8" fill="#1a1b27"/>${cells}</svg>`);
+
+            // Weekly activity graph (last 12 months)
+            const GW = 900, GH = 260, L = 50, R = 20, T = 50, B = 40;
+            const max = Math.max(...weeks, 1);
+            const px = i => L + (i * (GW - L - R)) / Math.max(weeks.length - 1, 1);
+            const py = v => GH - B - (v / max) * (GH - T - B);
+            const line = weeks.map((v, i) => `${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(' ');
+            const area = `${L},${GH - B} ${line} ${px(weeks.length - 1).toFixed(1)},${GH - B}`;
+            const grid = [0, 0.5, 1].map(f => {
+              const y = py(max * f).toFixed(1);
+              return `<line x1="${L}" y1="${y}" x2="${GW - R}" y2="${y}" stroke="#2f334d"/><text x="${L - 8}" y="${+y + 4}" text-anchor="end" class="a">${Math.round(max * f)}</text>`;
+            }).join('');
+            const months = [];
+            last.contributionCalendar.weeks.forEach((w, i) => {
+              const d = new Date(w.contributionDays[0].date);
+              if (i > 0 && d.getUTCDate() <= 7) months.push(`<text x="${px(i).toFixed(1)}" y="${GH - B + 20}" text-anchor="middle" class="a">${d.toLocaleString('en-US', { month: 'short', timeZone: 'UTC' })}</text>`);
+            });
+            fs.writeFileSync('metrics.activity.svg', `<svg xmlns="http://www.w3.org/2000/svg" width="${GW}" height="${GH}" viewBox="0 0 ${GW} ${GH}">${style}
+              <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7aa2f7" stop-opacity=".45"/><stop offset="1" stop-color="#7aa2f7" stop-opacity="0"/></linearGradient></defs>
+              <rect width="${GW}" height="${GH}" rx="8" fill="#1a1b27"/>
+              <text x="${L}" y="30" class="h">Contributions per week · last 12 months</text>
+              ${grid}${months.join('')}
+              <polygon points="${area}" fill="url(#g)"/>
+              <polyline points="${line}" fill="none" stroke="#7aa2f7" stroke-width="2.5" stroke-linejoin="round"/></svg>`);
+
+      - name: Commit cards
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add metrics.languages.svg
-          git diff --cached --quiet || (git commit -m "chore: update languages card" && git push)
+          git add metrics.*.svg
+          git diff --cached --quiet || (git commit -m "chore: update profile cards" && git push)
