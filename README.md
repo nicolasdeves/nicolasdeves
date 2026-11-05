@@ -4,7 +4,7 @@
 <p align="center">
   <a href="https://www.linkedin.com/in/nicolasdeves/"><img src="https://img.shields.io/badge/LinkedIn-nicolasdeves-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white" alt="LinkedIn"/></a>
   <img src="https://img.shields.io/badge/Lajeado,_RS-Brazil-009C3B?style=for-the-badge&logo=googlemaps&logoColor=white" alt="Location"/>
-  <img src="https://komarev.com/ghpvc/?username=nicolasdeves&style=for-the-badge&color=blueviolet&label=PROFILE+VIEWS" alt="Profile views"/>
+  <!-- <img src="https://komarev.com/ghpvc/?username=nicolasdeves&style=for-the-badge&color=blueviolet&label=PROFILE+VIEWS" alt="Profile views"/> -->
 </p>
 
 ---
